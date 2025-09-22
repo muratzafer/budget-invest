@@ -17,12 +17,14 @@ model Account {
 }
 
 model Category {
-  id           String        @id @default(cuid())
+  id           String   @id @default(cuid())
   name         String
-  type         String        // income | expense
+  type         String
   parentId     String?
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime @default(now())
   transactions Transaction[]
+
+  @@unique([name, type])
 }
 
 model Transaction {
