@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id           String        @id @default(cuid())
+  name         String
+  type         String        // cash | bank | card | broker | crypto
+  currency     String        // TRY | USD | ...
+  createdAt    DateTime      @default(now())
+  transactions Transaction[]
+}
+
+model Category {
+  id           String        @id @default(cuid())
+  name         String
+  type         String        // income | expense
+  parentId     String?
+  createdAt    DateTime      @default(now())
+  transactions Transaction[]
+}
+
+model Transaction {
+  id          String    @id @default(cuid())
+  accountId   String
+  categoryId  String?
+  type        String    // income | expense | transfer
+  amount      Decimal
+  currency    String
+  fxRateToTRY Decimal?
+  description String?
+  merchant    String?
+  occurredAt  DateTime
+  account     Account   @relation(fields: [accountId], references: [id])
+  category    Category? @relation(fields: [categoryId], references: [id])
+  createdAt   DateTime  @default(now())
+}
+
+model Holding {
+  id         String   @id @default(cuid())
+  symbol     String
+  assetType  String   // crypto | equity | gold | fx
+  currency   String
+  accountId  String?
+  quantity   Decimal
+  avgCost    Decimal
+  createdAt  DateTime @default(now())
+  orders     Order[]
+}
+
+model Order {
+  id         String   @id @default(cuid())
+  holdingId  String
+  side       String   // buy | sell
+  quantity   Decimal
+  price      Decimal
+  currency   String
+  fee        Decimal?
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+  holding    Holding  @relation(fields: [holdingId], references: [id])
+}
+
+model Price {
+  id        String   @id @default(cuid())
+  symbol    String
+  price     Decimal
+  currency  String
+  source    String
+  asOf      DateTime
+  createdAt DateTime @default(now())
+}
