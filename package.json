@@ -3,36 +3,48 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",
-    "next": "15.5.3",
+    "natural": "^8.1.0",
     "next-auth": "^4.24.11",
-    "prisma": "^6.16.2",
+    "next-themes": "^0.4.6",
+    "papaparse": "^5.5.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "recharts": "^3.2.1",
     "zod": "^4.1.11"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/next": "^9.0.0",
     "@types/next-auth": "^3.15.0",
     "@types/node": "^20",
-    "@types/react": "^19",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.1.13",
     "@types/react-dom": "^19",
+    "@types/recharts": "^2.0.1",
     "autoprefixer": "^10.4.21",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
+    "next": "15.5.3",
     "postcss": "^8.5.6",
+    "prisma": "^6.16.2",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "typescript": "^5"
   },
   "prisma": {
     "seed": "node prisma/seed.cjs"
-  }
+  },
+  "packageManager": "pnpm@9.12.3+sha512.cce0f9de9c5a7c95bef944169cc5dfe8741abfb145078c0d508b868056848a87c81e626246cb60967cbd7fd29a6c062ef73ff840d96b3c86c40ac92cf4a813ee"
 }

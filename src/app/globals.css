@@ -24,3 +24,9 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
+/* Tema geçişlerinde yumuşaklık istersen */
+* { transition: background-color .2s ease, color .2s ease, border-color .2s ease; }

@@ -8,57 +8,91 @@ datasource db {
 }
 
 model Account {
-  id           String        @id @default(cuid())
-  name         String
-  type         String        // cash | bank | card | broker | crypto
-  currency     String        // TRY | USD | ...
-  createdAt    DateTime      @default(now())
-  transactions Transaction[]
+  id                 String              @id @default(cuid())
+  name               String
+  type               String // cash | bank | card | broker | crypto
+  currency           String // TRY | USD | ...
+  createdAt          DateTime            @default(now())
+  transactions       Transaction[]
+  recurringTemplates RecurringTemplate[]
+  holdings           Holding[]
 }
 
 model Category {
-  id           String   @id @default(cuid())
-  name         String
-  type         String
-  parentId     String?
-  createdAt    DateTime @default(now())
-  transactions Transaction[]
+  id                 String              @id @default(cuid())
+  name               String
+  type               String
+  parentId           String?
+  createdAt          DateTime            @default(now())
+  transactions       Transaction[]
+  rules              Rule[]
+  recurringTemplates RecurringTemplate[]
 
   @@unique([name, type])
 }
 
+enum CategorySource {
+  user // kullanıcı seçti/düzeltti
+  rule // kural ile atandı
+  ml // makine öğrenmesi ile önerildi/atandı
+}
+
 model Transaction {
-  id          String    @id @default(cuid())
-  accountId   String
-  categoryId  String?
-  type        String    // income | expense | transfer
-  amount      Decimal
-  currency    String
-  fxRateToTRY Decimal?
-  description String?
-  merchant    String?
-  occurredAt  DateTime
-  account     Account   @relation(fields: [accountId], references: [id])
-  category    Category? @relation(fields: [categoryId], references: [id])
-  createdAt   DateTime  @default(now())
+  id                  String         @id @default(cuid())
+  accountId           String
+  categoryId          String?
+  type                String // income | expense | transfer
+  amount              Decimal
+  currency            String
+  fxRateToTRY         Decimal?
+  description         String?
+  merchant            String?
+  occurredAt          DateTime
+  account             Account        @relation(fields: [accountId], references: [id])
+  category            Category?      @relation(fields: [categoryId], references: [id])
+  createdAt           DateTime       @default(now())
+  categorySource      CategorySource @default(rule)
+  suggestedCategoryId String?
+  suggestedConfidence Float?
+
+  @@index([categoryId])
+  @@index([merchant])
+  @@index([description])
+}
+
+model Rule {
+  id           String   @id @default(cuid())
+  pattern      String // "A101", "migros.*", "shell"
+  isRegex      Boolean  @default(false)
+  priority     Int      @default(100) // küçük olan önce
+  merchantOnly Boolean  @default(false) // sadece merchant alanında aransın
+  category     Category @relation(fields: [categoryId], references: [id])
+  categoryId   String
+  createdAt    DateTime @default(now())
+
+  @@index([priority])
 }
 
 model Holding {
-  id         String   @id @default(cuid())
-  symbol     String
-  assetType  String   // crypto | equity | gold | fx
-  currency   String
-  accountId  String?
-  quantity   Decimal
-  avgCost    Decimal
-  createdAt  DateTime @default(now())
-  orders     Order[]
+  id        String   @id @default(cuid())
+  symbol    String
+  assetType String // crypto | equity | gold | fx
+  currency  String
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id])
+  quantity  Decimal
+  avgCost   Decimal
+  createdAt DateTime @default(now())
+  orders    Order[]
+
+  @@index([accountId])
+  @@index([symbol])
 }
 
 model Order {
   id         String   @id @default(cuid())
   holdingId  String
-  side       String   // buy | sell
+  side       String // buy | sell
   quantity   Decimal
   price      Decimal
   currency   String
@@ -76,4 +110,34 @@ model Price {
   source    String
   asOf      DateTime
   createdAt DateTime @default(now())
+}
+
+model RecurringTemplate {
+  id   String @id @default(cuid())
+  // income | expense | transfer
+  type String
+
+  accountId   String
+  categoryId  String?
+  amount      Decimal
+  currency    String
+  description String?
+  merchant    String?
+
+  // schedule fields
+  interval   String // monthly | weekly | daily | custom
+  dayOfMonth Int? // 1..28/30/31 for monthly
+  weekday    Int? // 0..6 (Sun..Sat) for weekly
+  everyNDays Int? // for custom/"every N days"
+
+  nextRunAt DateTime // when to generate next Transaction
+  lastRunAt DateTime?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  account  Account   @relation(fields: [accountId], references: [id])
+  category Category? @relation(fields: [categoryId], references: [id])
+
+  @@index([nextRunAt])
+  @@index([isActive])
 }

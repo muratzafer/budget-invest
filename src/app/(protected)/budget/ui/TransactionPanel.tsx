@@ -16,6 +16,9 @@ type Tx = {
   occurredAt: string; // API'den ISO string gelir
   account?: Account;
   category?: Category | null;
+  categorySource?: "user" | "rule" | "ml";
+  suggestedCategoryId?: string | null;
+  suggestedConfidence?: number | null;
 };
 
 export default function TransactionPanel({
@@ -27,7 +30,7 @@ export default function TransactionPanel({
   categories: Category[];
   initialTx: Tx[];
 }) {
-  const [items, setItems] = useState<Tx[]>(initialTx);
+  const [items, setItems] = useState<Tx[]>(() => structuredClone(initialTx));
   const [loading, setLoading] = useState(false);
   const [type, setType] = useState<"income" | "expense" | "transfer">("expense");
 
@@ -93,6 +96,34 @@ export default function TransactionPanel({
     if (!res.ok) {
       setItems(prev);
       alert("Silme işlemi başarısız.");
+    }
+  }
+
+  async function confirmTx(id: string) {
+    const res = await fetch(`/api/transactions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "confirm" }),
+    });
+    if (res.ok) {
+      const updated: Tx = await res.json();
+      setItems((s) => s.map((x) => (x.id === id ? { ...x, ...updated } : x)));
+    } else {
+      alert("Onaylama başarısız.");
+    }
+  }
+
+  async function recategorizeTx(id: string, newCategoryId: string) {
+    const res = await fetch(`/api/transactions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "recategorize", categoryId: newCategoryId }),
+    });
+    if (res.ok) {
+      const updated: Tx = await res.json();
+      setItems((s) => s.map((x) => (x.id === id ? { ...x, ...updated } : x)));
+    } else {
+      alert("Kategori değiştirme başarısız.");
     }
   }
 
@@ -214,10 +245,47 @@ export default function TransactionPanel({
           <tbody>
             {items.map((t) => (
               <tr key={t.id} className="border-t">
-                <td className="p-2">{new Date(t.occurredAt).toLocaleDateString()}</td>
+                <td className="p-2" suppressHydrationWarning>{t.occurredAt}</td>
                 <td className="p-2">{t.type}</td>
                 <td className="p-2">{t.account?.name ?? "—"}</td>
-                <td className="p-2">{t.category?.name ?? "—"}</td>
+                <td className="p-2">
+                  {t.category?.name ?? "—"}{" "}
+                  {t.categorySource === "ml" && (
+                    <span className="ml-2 inline-flex items-center text-xs rounded bg-yellow-100 px-1.5 py-0.5">
+                      ⚡︎ ML
+                    </span>
+                  )}
+                  {t.categorySource === "rule" && (
+                    <span className="ml-2 inline-flex items-center text-xs rounded bg-gray-200 px-1.5 py-0.5">
+                      ⚙︎ Rule
+                    </span>
+                  )}
+                  {t.categorySource === "ml" && (
+                    <div className="mt-1 flex items-center gap-2">
+                      <button
+                        className="text-green-700 underline"
+                        onClick={() => confirmTx(t.id)}
+                      >
+                        Onayla
+                      </button>
+                      <select
+                        className="border rounded px-1 py-0.5"
+                        defaultValue={t.categoryId ?? ""}
+                        onChange={(e) => {
+                          const newCat = e.target.value;
+                          if (newCat) recategorizeTx(t.id, newCat);
+                        }}
+                      >
+                        <option value="">(seç)</option>
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </td>
                 <td className="p-2 text-right">{Number(t.amount).toLocaleString()}</td>
                 <td className="p-2">{t.currency}</td>
                 <td className="p-2">{t.description ?? "—"}</td>
