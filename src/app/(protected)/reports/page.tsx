@@ -167,7 +167,7 @@ export default async function ReportsPage({
           <label className="block text-sm text-gray-600 mb-1">Hesap</label>
           <select name="accountId" defaultValue={accountId} className="w-full rounded border px-2 py-1">
             <option value="">(Hepsi)</option>
-            {accounts.map((a) => (
+            {accounts.map((a: { id: any; name: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; }) => (
               <option key={String(a.id)} value={String(a.id)}>{a.name}</option>
             ))}
           </select>
@@ -176,7 +176,7 @@ export default async function ReportsPage({
           <label className="block text-sm text-gray-600 mb-1">Kategori</label>
           <select name="categoryId" defaultValue={categoryId} className="w-full rounded border px-2 py-1">
             <option value="">(Hepsi)</option>
-            {allCategories.map((c) => (
+            {allCategories.map((c: { id: any; name: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; }) => (
               <option key={String(c.id ?? '')} value={String(c.id ?? '')}>{c.name}</option>
             ))}
           </select>
