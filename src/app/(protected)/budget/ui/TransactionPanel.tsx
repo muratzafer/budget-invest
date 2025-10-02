@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatDateUTC } from "@/lib/format";
 
 type Account = { id: string; name: string; currency: string; type: string };
 type Category = { id: string; name: string; type: "income" | "expense" };
@@ -20,6 +21,17 @@ type Tx = {
   suggestedCategoryId?: string | null;
   suggestedConfidence?: number | null;
 };
+
+const fmtMoney = (n: number, currency = "TRY") =>
+  new Intl.NumberFormat("tr-TR", { style: "currency", currency }).format(n);
+
+const catNameById = (id: string | null | undefined, all: Category[]) => {
+  if (!id) return "(Kategorisiz)";
+  return all.find((c) => c.id === id)?.name ?? "(Bilinmiyor)";
+};
+
+const fmtPercent = (v: number | null | undefined) =>
+  typeof v === "number" && Number.isFinite(v) ? `${Math.round(v * 100)}%` : "";
 
 export default function TransactionPanel({
   accounts,
@@ -55,12 +67,18 @@ export default function TransactionPanel({
 
   async function createTx() {
     setLoading(true);
+    const nAmount = Number(amount);
+    if (!Number.isFinite(nAmount) || nAmount <= 0) {
+      setLoading(false);
+      alert("Geçerli bir tutar giriniz.");
+      return;
+    }
     try {
       const payload = {
         accountId,
         categoryId: categoryId ?? null,
         type,
-        amount: Number(amount),
+        amount: nAmount,
         currency,
         description: description || null,
         merchant: merchant || null,
@@ -245,32 +263,52 @@ export default function TransactionPanel({
           <tbody>
             {items.map((t) => (
               <tr key={t.id} className="border-t">
-                <td className="p-2" suppressHydrationWarning>{t.occurredAt}</td>
+                <td className="p-2" suppressHydrationWarning>{formatDateUTC(t.occurredAt)}</td>
                 <td className="p-2">{t.type}</td>
                 <td className="p-2">{t.account?.name ?? "—"}</td>
                 <td className="p-2">
-                  {t.category?.name ?? "—"}{" "}
-                  {t.categorySource === "ml" && (
-                    <span className="ml-2 inline-flex items-center text-xs rounded bg-yellow-100 px-1.5 py-0.5">
-                      ⚡︎ ML
-                    </span>
-                  )}
-                  {t.categorySource === "rule" && (
-                    <span className="ml-2 inline-flex items-center text-xs rounded bg-gray-200 px-1.5 py-0.5">
-                      ⚙︎ Rule
-                    </span>
-                  )}
-                  {t.categorySource === "ml" && (
-                    <div className="mt-1 flex items-center gap-2">
+                  {/* Mevcut kategori */}
+                  <div className="flex items-center gap-2">
+                    <span>{t.category?.name ?? "—"}</span>
+                    {t.categorySource === "user" && (
+                      <span className="inline-flex items-center text-xs rounded bg-emerald-100 px-1.5 py-0.5">
+                        👤 User
+                      </span>
+                    )}
+                    {t.categorySource === "rule" && (
+                      <span className="inline-flex items-center text-xs rounded bg-gray-200 px-1.5 py-0.5">
+                        ⚙︎ Rule
+                      </span>
+                    )}
+                    {t.categorySource === "ml" && (
+                      <span className="inline-flex items-center text-xs rounded bg-yellow-100 px-1.5 py-0.5">
+                        ⚡︎ ML
+                      </span>
+                    )}
+                  </div>
+
+                  {/* ML / öneri alt satırı */}
+                  {(t.suggestedCategoryId || t.categorySource === "ml") && (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {t.suggestedCategoryId && (
+                        <span className="text-xs text-gray-600">
+                          Öneri: <b>{catNameById(t.suggestedCategoryId, categories)}</b>{" "}
+                          <i className="opacity-70">{fmtPercent(t.suggestedConfidence)}</i>
+                        </span>
+                      )}
+
                       <button
-                        className="text-green-700 underline"
+                        className="text-green-700 text-xs underline"
                         onClick={() => confirmTx(t.id)}
+                        title="Kategoriyi onayla (user olarak işaretlenir)"
                       >
                         Onayla
                       </button>
+
+                      <label className="text-xs text-gray-500">Değiştir:</label>
                       <select
-                        className="border rounded px-1 py-0.5"
-                        defaultValue={t.categoryId ?? ""}
+                        className="border rounded px-1 py-0.5 text-xs"
+                        defaultValue=""
                         onChange={(e) => {
                           const newCat = e.target.value;
                           if (newCat) recategorizeTx(t.id, newCat);
@@ -286,7 +324,7 @@ export default function TransactionPanel({
                     </div>
                   )}
                 </td>
-                <td className="p-2 text-right">{Number(t.amount).toLocaleString()}</td>
+                <td className="p-2 text-right">{fmtMoney(Number(t.amount), t.currency)}</td>
                 <td className="p-2">{t.currency}</td>
                 <td className="p-2">{t.description ?? "—"}</td>
                 <td className="p-2">{t.merchant ?? "—"}</td>

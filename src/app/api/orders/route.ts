@@ -1,34 +1,32 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { Prisma } from "@prisma/client";
 
 export async function POST(req: Request) {
   const body = await req.json();
   // { holdingId, side: "buy"|"sell", quantity, price, currency, fee?, occurredAt }
   const { holdingId, side, quantity, price, currency, fee, occurredAt } = body;
 
-  const order = await prisma.$transaction(async (tx) => {
+  const order = await prisma.$transaction(async (tx: any) => {
     const h = await tx.holding.findUnique({ where: { id: holdingId } });
     if (!h) throw new Error("Holding not found");
 
-    const q = new Prisma.Decimal(quantity);
-    const p = new Prisma.Decimal(price);
-    const oldQty = new Prisma.Decimal(h.quantity ?? 0);
-    const oldAvg = new Prisma.Decimal(h.avgCost ?? 0);
+    const q = Number(quantity);
+    const p = Number(price);
+    const oldQty = Number(h.quantity ?? 0);
+    const oldAvg = Number(h.avgCost ?? 0);
 
     let newQty = oldQty;
     let newAvg = oldAvg;
 
     if (side === "buy") {
-      const totalCost = oldQty.mul(oldAvg).add(q.mul(p));
-      newQty = oldQty.add(q);
-      newAvg = newQty.gt(0) ? totalCost.div(newQty) : new Prisma.Decimal(0);
+      const totalCost = oldQty * oldAvg + q * p;
+      newQty = oldQty + q;
+      newAvg = newQty > 0 ? totalCost / newQty : 0;
     } else {
       // sell
-      newQty = oldQty.sub(q);
-      if (newQty.lt(0)) throw new Error("Sell qty exceeds position");
-      // avgCost same; if position closes reset avg to 0
-      if (newQty.eq(0)) newAvg = new Prisma.Decimal(0);
+      newQty = oldQty - q;
+      if (newQty < 0) throw new Error("Sell qty exceeds position");
+      if (newQty === 0) newAvg = 0;
     }
 
     const created = await tx.order.create({
@@ -38,7 +36,7 @@ export async function POST(req: Request) {
         quantity: q,
         price: p,
         currency,
-        fee,
+        fee: fee ?? null,
         occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
       },
     });
@@ -55,4 +53,27 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json(order, { status: 201 });
+}
+
+export async function GET() {
+  try {
+    const orders = await prisma.order.findMany({
+      include: {
+        holding: {
+          include: {
+            account: true,
+          },
+        },
+      },
+      orderBy: {
+        occurredAt: "desc",
+      },
+    });
+    return NextResponse.json(orders, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: "Failed to fetch orders", details: error.message },
+      { status: 500 }
+    );
+  }
 }

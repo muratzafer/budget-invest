@@ -133,7 +133,7 @@ export async function POST(req: Request) {
         description: data.description ?? null,
         merchant: data.merchant ?? null,
         occurredAt: data.occurredAt ?? new Date(),
-        categorySource: categorySource ?? "rule",
+        ...(categorySource ? { categorySource } : {}),
         suggestedCategoryId,
         suggestedConfidence,
       },
