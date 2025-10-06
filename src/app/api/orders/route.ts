@@ -7,7 +7,10 @@ export async function POST(req: Request) {
   const { holdingId, side, quantity, price, currency, fee, occurredAt } = body;
 
   const order = await prisma.$transaction(async (tx: any) => {
-    const h = await tx.holding.findUnique({ where: { id: holdingId } });
+    const h = await tx.holding.findUnique({
+      where: { id: holdingId },
+      select: { id: true, accountId: true, symbol: true, quantity: true, avgCost: true },
+    });
     if (!h) throw new Error("Holding not found");
 
     const q = Number(quantity);
@@ -46,6 +49,26 @@ export async function POST(req: Request) {
       data: {
         quantity: newQty,
         avgCost: newAvg,
+      },
+    });
+
+    // Create matching Transaction for bookkeeping
+    const gross = q * p;
+    const feeNum = Number(fee ?? 0);
+    const tType = side === "buy" ? "expense" : "income";
+    const amount = side === "buy" ? gross + feeNum : gross - feeNum;
+
+    await tx.transaction.create({
+      data: {
+        accountId: h.accountId,
+        // You can fill categoryId via rules/ML later; keep null for now
+        categoryId: null,
+        type: tType,
+        amount,
+        currency,
+        description: `${side === "buy" ? "Alım" : "Satım"} emri${h.symbol ? ` (${h.symbol})` : ""}`,
+        merchant: "Order",
+        occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
       },
     });
 
