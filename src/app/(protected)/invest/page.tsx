@@ -1,5 +1,7 @@
 import prisma from "@/lib/prisma";
 import OrderForm from "./ui/OrderForm";
+import { Prisma } from "@prisma/client";
+import HoldingActions from "./ui/HoldingActions";
 
 function fmtTRY(n: number | null | undefined) {
   const v = Number(n ?? 0);
@@ -36,6 +38,38 @@ export default async function Page() {
     });
   } catch (e: any) {
     if (!error) error = `Portföy yüklenemedi: ${e?.message ?? String(e)}`;
+  }
+
+  // En son fiyatlar (prices) — her sembol için en güncel kaydı al (sembol başına 1 sorgu)
+  let priceMap: Record<string, number> = {};
+  try {
+    const symbols = Array.from(new Set(holdings.map((h: any) => h.symbol))).filter(Boolean);
+
+    const toNum = (v: unknown): number => {
+      // Prisma.Decimal güvenli çevrim
+      if (v && typeof v === "object" && "toNumber" in (v as any)) {
+        try { return (v as any).toNumber(); } catch { return Number(v as any); }
+      }
+      return Number(v ?? 0);
+    };
+
+    if (symbols.length > 0) {
+      const latestList = await Promise.all(
+        symbols.map((s) =>
+          prisma.price.findFirst({
+            where: { symbol: s },
+            orderBy: { asOf: "desc" },
+            select: { symbol: true, price: true },
+          })
+        )
+      );
+      for (const p of latestList) {
+        if (!p) continue;
+        priceMap[p.symbol] = toNum(p.price);
+      }
+    }
+  } catch (e: any) {
+    if (!error) error = `Fiyatlar yüklenemedi: ${e?.message ?? String(e)}`;
   }
 
   // Son işlemler (orders)
@@ -113,6 +147,10 @@ export default async function Page() {
                   <th className="py-2 pr-3 text-right">Adet</th>
                   <th className="py-2 pr-3 text-right">Ort. Maliyet</th>
                   <th className="py-2 pr-3 text-right">Defter Değeri</th>
+                  <th className="py-2 pr-3 text-right">Son Fiyat</th>
+                  <th className="py-2 pr-3 text-right">Piyasa Değeri</th>
+                  <th className="py-2 pr-3 text-right">PNL</th>
+                  <th className="py-2 pr-3 text-right">İşlem</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,6 +158,9 @@ export default async function Page() {
                   const qty = Number(h.quantity ?? 0);
                   const avg = Number(h.avgCost ?? 0);
                   const book = qty * avg;
+                  const last = Number(priceMap[h.symbol] ?? 0);
+                  const market = last * qty;
+                  const pnl = market - book;
                   return (
                     <tr key={h.id} className="border-t">
                       <td className="py-2 pr-3">{h.account?.name ?? "—"}</td>
@@ -129,6 +170,23 @@ export default async function Page() {
                       </td>
                       <td className="py-2 pr-3 text-right">{fmtTRY(avg)}</td>
                       <td className="py-2 pr-3 text-right">{fmtTRY(book)}</td>
+                      <td className="py-2 pr-3 text-right">{fmtTRY(last)}</td>
+                      <td className="py-2 pr-3 text-right">{fmtTRY(market)}</td>
+                      <td className={`py-2 pr-3 text-right ${pnl >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                        {fmtTRY(pnl)}
+                      </td>
+                      <td className="py-2 pr-3 text-right">
+                        <HoldingActions
+                          holding={{
+                            id: h.id,
+                            symbol: h.symbol,
+                            quantity: h.quantity,
+                            avgCost: h.avgCost,
+                            accountId: h.accountId,
+                            currency: h.currency ?? "TRY",
+                          }}
+                        />
+                      </td>
                     </tr>
                   );
                 })}
