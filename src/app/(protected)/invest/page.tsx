@@ -1,18 +1,44 @@
 import prisma from "@/lib/prisma";
 import OrderForm from "./ui/OrderForm";
-import { Prisma } from "@prisma/client";
 import HoldingActions from "./ui/HoldingActions";
+import { unstable_noStore as noStore } from "next/cache";
+import LivePrices from "./ui/LivePrices";
 
-function fmtTRY(n: number | null | undefined) {
+
+function toNum(v: unknown): number {
+  if (v == null) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") return Number(v);
+  if (typeof (v as any)?.toNumber === "function") {
+    try { return (v as any).toNumber(); } catch { /* noop */ }
+  }
+  return Number(v as any);
+}
+
+function pct(numerator: number, denominator: number) {
+  const d = Number(denominator ?? 0);
+  if (!isFinite(d) || d === 0) return 0;
+  return (Number(numerator ?? 0) / d) * 100;
+}
+
+function fmt(n: number | null | undefined, currency = "TRY") {
   const v = Number(n ?? 0);
-  return new Intl.NumberFormat("tr-TR", {
-    style: "currency",
-    currency: "TRY",
-    maximumFractionDigits: 2,
-  }).format(v);
+  try {
+    return new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(v);
+  } catch {
+    // Fallback for non-ISO currencies (e.g. USDT, BTC)
+    return `${new Intl.NumberFormat("tr-TR", {
+      maximumFractionDigits: 2,
+    }).format(v)} ${currency}`;
+  }
 }
 
 export default async function Page() {
+  noStore();
   // Hataları yüzeye çıkarmak yerine sayfada göstermek için try/catch ile güvenli istekler
   let error: string | null = null;
 
@@ -44,14 +70,6 @@ export default async function Page() {
   let priceMap: Record<string, number> = {};
   try {
     const symbols = Array.from(new Set(holdings.map((h: any) => h.symbol))).filter(Boolean);
-
-    const toNum = (v: unknown): number => {
-      // Prisma.Decimal güvenli çevrim
-      if (v && typeof v === "object" && "toNumber" in (v as any)) {
-        try { return (v as any).toNumber(); } catch { return Number(v as any); }
-      }
-      return Number(v ?? 0);
-    };
 
     if (symbols.length > 0) {
       const latestList = await Promise.all(
@@ -86,14 +104,23 @@ export default async function Page() {
   // Basit toplamlar
   const totalPositions = holdings.length;
   const totalQty = holdings.reduce(
-    (acc: number, h: any) => acc + Number(h.quantity ?? 0),
+    (acc: number, h: any) => acc + toNum(h.quantity),
     0
   );
   const totalBook = holdings.reduce(
     (acc: number, h: any) =>
-      acc + Number(h.quantity ?? 0) * Number(h.avgCost ?? 0),
+      acc + toNum(h.quantity) * toNum(h.avgCost),
     0
   );
+  const totalMarket = holdings.reduce(
+    (acc: number, h: any) => {
+      const qty = toNum(h.quantity);
+      const last = toNum(priceMap[h.symbol]);
+      return acc + qty * last;
+    },
+    0
+  );
+  const totalPnl = totalMarket - totalBook;
 
   return (
     <div className="space-y-6">
@@ -109,7 +136,7 @@ export default async function Page() {
       ) : null}
 
       {/* Özet kartları */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="rounded-2xl border p-4 shadow-sm">
           <div className="text-xs text-muted-foreground">Toplam Pozisyon</div>
           <div className="text-2xl font-semibold">{totalPositions}</div>
@@ -121,8 +148,17 @@ export default async function Page() {
           </div>
         </div>
         <div className="rounded-2xl border p-4 shadow-sm">
-          <div className="text-xs text-muted-foreground">Maliyet (defter)</div>
-          <div className="text-2xl font-semibold">{fmtTRY(totalBook)}</div>
+          <div className="text-xs text-muted-foreground">Maliyet (Defter)</div>
+          <div className="text-2xl font-semibold">{fmt(totalBook, "TRY")}</div>
+        </div>
+        <div className="rounded-2xl border p-4 shadow-sm">
+          <div className="text-xs text-muted-foreground">Güncel Değer / Toplam P&amp;L</div>
+          <div className="text-2xl font-semibold">
+            {fmt(totalMarket, "TRY")}{" "}
+            <span className={totalPnl >= 0 ? "text-emerald-600" : "text-rose-600"}>
+              ({fmt(totalPnl, "TRY")})
+            </span>
+          </div>
         </div>
       </div>
 
@@ -150,17 +186,20 @@ export default async function Page() {
                   <th className="py-2 pr-3 text-right">Son Fiyat</th>
                   <th className="py-2 pr-3 text-right">Piyasa Değeri</th>
                   <th className="py-2 pr-3 text-right">PNL</th>
+                  <th className="py-2 pr-3 text-right">PNL %</th>
                   <th className="py-2 pr-3 text-right">İşlem</th>
                 </tr>
               </thead>
               <tbody>
                 {holdings.map((h: any) => {
-                  const qty = Number(h.quantity ?? 0);
-                  const avg = Number(h.avgCost ?? 0);
+                  const qty = toNum(h.quantity);
+                  const avg = toNum(h.avgCost ?? 0);
                   const book = qty * avg;
-                  const last = Number(priceMap[h.symbol] ?? 0);
+                  const cur = h.currency ?? "TRY";
+                  const last = toNum(priceMap[h.symbol]);
                   const market = last * qty;
                   const pnl = market - book;
+                  const pnlPctVal = pct(last - avg, avg);
                   return (
                     <tr key={h.id} className="border-t">
                       <td className="py-2 pr-3">{h.account?.name ?? "—"}</td>
@@ -168,22 +207,30 @@ export default async function Page() {
                       <td className="py-2 pr-3 text-right">
                         {new Intl.NumberFormat("tr-TR").format(qty)}
                       </td>
-                      <td className="py-2 pr-3 text-right">{fmtTRY(avg)}</td>
-                      <td className="py-2 pr-3 text-right">{fmtTRY(book)}</td>
-                      <td className="py-2 pr-3 text-right">{fmtTRY(last)}</td>
-                      <td className="py-2 pr-3 text-right">{fmtTRY(market)}</td>
+                      <td className="py-2 pr-3 text-right">{fmt(avg, cur)}</td>
+                      <td className="py-2 pr-3 text-right">{fmt(book, cur)}</td>
+                      <td className="py-2 pr-3 text-right">{last ? fmt(last, cur) : "—"}</td>
+                      <td className="py-2 pr-3 text-right">{last ? fmt(market, cur) : "—"}</td>
                       <td className={`py-2 pr-3 text-right ${pnl >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                        {fmtTRY(pnl)}
+                        {fmt(pnl, cur)}
+                      </td>
+                      <td className={`py-2 pr-3 text-right ${pnlPctVal >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                        {new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(pnlPctVal)}%
                       </td>
                       <td className="py-2 pr-3 text-right">
                         <HoldingActions
                           holding={{
                             id: h.id,
                             symbol: h.symbol,
-                            quantity: h.quantity,
-                            avgCost: h.avgCost,
+                            quantity: qty,
+                            avgCost: avg,
                             accountId: h.accountId,
-                            currency: h.currency ?? "TRY",
+                            currency: cur,
+                            marketPrice: last || 0,
+                            marketValue: (last || 0) * qty,
+                            pnl: market - book,
+                            pnlPct: pct(last - avg, avg),
+                            avgPrice: avg,
                           }}
                         />
                       </td>
@@ -191,6 +238,19 @@ export default async function Page() {
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="border-t font-medium">
+                  <td className="py-2 pr-3" colSpan={4}>Toplam</td>
+                  <td className="py-2 pr-3 text-right">{fmt(totalBook, "TRY")}</td>
+                  <td className="py-2 pr-3 text-right">—</td>
+                  <td className="py-2 pr-3 text-right">{fmt(totalMarket, "TRY")}</td>
+                  <td className={`py-2 pr-3 text-right ${totalPnl >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {fmt(totalPnl, "TRY")}
+                  </td>
+                  <td className="py-2 pr-3 text-right">—</td>
+                  <td />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
@@ -236,10 +296,10 @@ export default async function Page() {
                       }).format(Number(o.quantity ?? 0))}
                     </td>
                     <td className="py-2 pr-3 text-right">
-                      {fmtTRY(Number(o.price ?? 0))}
+                      {fmt(Number(o.price ?? 0), "TRY")}
                     </td>
                     <td className="py-2 pr-3 text-right">
-                      {o.fee != null ? fmtTRY(Number(o.fee)) : "—"}
+                      {o.fee != null ? fmt(Number(o.fee), "TRY") : "—"}
                     </td>
                   </tr>
                 ))}
@@ -248,6 +308,11 @@ export default async function Page() {
           </div>
         )}
       </section>
+      <LivePrices
+        symbols={[...new Set(holdings.map((h: any) => h.symbol).filter(Boolean))]}
+        currency="USDT"
+        flushMs={1500}
+      />
     </div>
   );
 }

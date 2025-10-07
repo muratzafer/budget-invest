@@ -8,7 +8,7 @@ const HoldingPatchSchema = z
   .object({
     symbol: z.string().trim().min(1).transform((s) => s.toUpperCase()).optional(),
     quantity: z.coerce.number().finite().nonnegative().optional(),
-    avgPrice: z.coerce.number().finite().nonnegative().optional(),
+    avgCost: z.coerce.number().finite().nonnegative().optional(),
     currency: z
       .string()
       .trim()
@@ -20,6 +20,28 @@ const HoldingPatchSchema = z
     notes: z.string().nullable().optional(),
   })
   .strict();
+
+export async function GET(
+  _req: Request,
+  { params }: { params: { id: string } },
+) {
+  try {
+    const holding = await prisma.holding.findUnique({
+      where: { id: params.id },
+      include: { account: { select: { id: true, name: true } } },
+    });
+    if (!holding) {
+      return NextResponse.json({ error: "Holding not found" }, { status: 404 });
+    }
+    return NextResponse.json(holding);
+  } catch (err) {
+    console.error("GET /api/holdings/[id] error", err);
+    return NextResponse.json(
+      { error: "Failed to fetch holding" },
+      { status: 500 },
+    );
+  }
+}
 
 export async function PATCH(
   req: Request,
