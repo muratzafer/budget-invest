@@ -1,0 +1,10 @@
+-- CreateTable
+CREATE TABLE "PortfolioSnapshot" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "asOf" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "totalMarket" DECIMAL NOT NULL,
+    "totalBook" DECIMAL NOT NULL,
+    "pnl" DECIMAL NOT NULL,
+    "diffPct" REAL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

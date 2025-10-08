@@ -84,6 +84,7 @@ model Holding {
   avgCost   Decimal
   createdAt DateTime @default(now())
   orders    Order[]
+  avgPrice  Float
 
   @@index([accountId])
   @@index([symbol])
@@ -140,4 +141,34 @@ model RecurringTemplate {
 
   @@index([nextRunAt])
   @@index([isActive])
+}
+
+model TargetAllocation {
+  id        String   @id @default(cuid())
+  symbol    String
+  targetPct Float
+  asOf      DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+model DCAPlan {
+  id        String   @id @default(cuid())
+  name      String
+  symbol    String
+  amount    Float
+  period    String
+  status    String
+  lastRunAt DateTime?
+  nextRunAt DateTime?
+  createdAt DateTime @default(now())
+}
+
+model PortfolioSnapshot {
+  id          String   @id @default(cuid())
+  asOf        DateTime @default(now())
+  totalMarket Decimal
+  totalBook   Decimal
+  pnl         Decimal
+  diffPct     Float?
+  createdAt   DateTime @default(now())
 }

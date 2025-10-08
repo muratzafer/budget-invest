@@ -1,0 +1,7 @@
+-- CreateTable
+CREATE TABLE "TargetAllocation" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "symbol" TEXT NOT NULL,
+    "targetPct" REAL NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

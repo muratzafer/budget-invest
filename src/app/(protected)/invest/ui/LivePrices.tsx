@@ -17,6 +17,7 @@ export default function LivePrices({
   flushMs = 1500,
   postToApi = true,
   onUpdate,
+  suspendOnHidden = true,
 }: {
   symbols: string[];
   currency?: string; // Binance pairs are mostly *USDT — keep as plain string
@@ -25,8 +26,12 @@ export default function LivePrices({
   postToApi?: boolean;
   /** Called at each flush with the latest ticks per symbol */
   onUpdate?: (batch: Record<string, { price: number; asOf: number }>) => void;
+  /** When true, pause WS & flushing while the tab is hidden */
+  suspendOnHidden?: boolean;
 }) {
   const wsRef = useRef<WebSocket | null>(null);
+  const mountedRef = useRef(true);
+  const backoffRef = useRef(1500); // ms, exponential backoff base
   const bufferRef = useRef<Record<string, { price: number; asOf: number }>>({});
   const reconnectTimer = useRef<number | null>(null);
   const flusher = useRef<number | null>(null);
@@ -35,6 +40,10 @@ export default function LivePrices({
 
   useEffect(() => {
     if (!symbols || symbols.length === 0) return;
+
+    mountedRef.current = true;
+
+    const isHidden = () => suspendOnHidden && typeof document !== "undefined" && document.hidden;
 
     // Normalize symbols to Binance stream format (lowercase e.g. btcusdt)
     const norm = Array.from(
@@ -51,24 +60,24 @@ export default function LivePrices({
     const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
 
     function connect() {
+      if (isHidden()) return; // don't connect while tab hidden
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        backoffRef.current = 1500; // reset backoff on successful connect
         // console.info("LivePrices connected", url);
       };
 
       ws.onmessage = (evt) => {
         try {
-          const msg = JSON.parse(evt.data as string);
-          // Payload shape: { stream: 'btcusdt@ticker', data: { s: 'BTCUSDT', c: '65000.12', E: 1690000000000 } }
+          const msg = JSON.parse((evt.data as string));
           const d = msg?.data;
           if (!d) return;
           const symbol: string = (d.s || "").toString().toUpperCase();
           const price = Number(d.c ?? d.p ?? d.lastPrice);
           const asOf = Number(d.E ?? Date.now());
           if (!symbol || !Number.isFinite(price)) return;
-          // Buffer latest tick per symbol
           bufferRef.current[symbol] = { price, asOf };
         } catch {
           // ignore malformed frames
@@ -77,20 +86,31 @@ export default function LivePrices({
 
       ws.onclose = () => {
         wsRef.current = null;
-        // Retry with fixed-backoff
-        reconnectTimer.current = window.setTimeout(connect, 1500) as unknown as number;
+        if (!mountedRef.current) return;
+        // exponential backoff with jitter
+        const delay = Math.min(20000, backoffRef.current * (1 + Math.random()));
+        backoffRef.current = Math.min(20000, backoffRef.current * 1.6);
+        reconnectTimer.current = window.setTimeout(connect, delay) as unknown as number;
       };
 
       ws.onerror = () => {
-        try {
-          ws.close();
-        } catch {
-          // ignore
-        }
+        try { ws.close(); } catch {}
       };
     }
 
     connect();
+
+    const onVis = () => {
+      if (!suspendOnHidden) return;
+      if (!document.hidden && !wsRef.current) {
+        // became visible and no active socket → reconnect and flush soon
+        backoffRef.current = 1500;
+        connect();
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVis);
+    }
 
     // Periodically flush buffered prices
     const flush = async () => {
@@ -148,21 +168,24 @@ export default function LivePrices({
       }
     };
 
-    flusher.current = window.setInterval(flush, flushMs) as unknown as number;
+    flusher.current = window.setInterval(() => {
+      if (isHidden()) return;
+      flush();
+    }, flushMs) as unknown as number;
 
     return () => {
+      mountedRef.current = false;
       if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
       if (flusher.current) window.clearInterval(flusher.current);
-      try {
-        wsRef.current?.close();
-      } catch {
-        // ignore
-      }
+      try { wsRef.current?.close(); } catch {}
       wsRef.current = null;
       bufferRef.current = {};
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVis as any);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(symbols), currency, flushMs, postToApi]);
+  }, [JSON.stringify(symbols), currency, flushMs, postToApi, suspendOnHidden]);
 
   return null; // headless component
 }
