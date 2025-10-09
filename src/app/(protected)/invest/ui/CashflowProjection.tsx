@@ -1,7 +1,7 @@
 
 
 "use client";
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
 
 export type Period = "daily" | "weekly" | "monthly";
 export type DCAPlanLite = {
@@ -54,65 +54,65 @@ export default function CashflowProjection({ plans, currency = "TRY", horizonMon
   const now = new Date();
   const baseMonth = startOfMonth(now);
 
+  const [rangeMonths, setRangeMonths] = useState<number>(horizonMonths);
+
   const months = useMemo(() => {
-    return Array.from({ length: Math.max(1, horizonMonths) }, (_, i) => {
+    return Array.from({ length: Math.max(1, rangeMonths) }, (_, i) => {
       const from = startOfMonth(addMonths(baseMonth, i));
       const to = endOfMonth(from);
-      return { key: `${from.getFullYear()}-${from.getMonth() + 1}`.padStart(7, "0"), label: from.toLocaleDateString("tr-TR", { year: "numeric", month: "long" }), from, to };
+      return {
+        key: `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}`,
+        label: from.toLocaleDateString("tr-TR", { year: "numeric", month: "long" }),
+        from,
+        to,
+      };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [horizonMonths]);
+  }, [rangeMonths, baseMonth]);
+
+  const [includePaused, setIncludePaused] = useState(false);
+
+  function countOccurrences(period: Period, startAt: Date, from: Date, to: Date) {
+    // Start at the later of startAt and from
+    let t = new Date(Math.max(startAt.getTime(), from.getTime()));
+    if (t > to) return 0;
+    let c = 0;
+    if (period === "daily") {
+      while (t <= to) {
+        c++;
+        t = addDays(t, 1);
+      }
+      return c;
+    }
+    if (period === "weekly") {
+      while (t <= to) {
+        c++;
+        t = addWeeks(t, 1);
+      }
+      return c;
+    }
+    // monthly
+    while (t <= to) {
+      c++;
+      t = addMonths(startOfMonth(t), 1);
+    }
+    return c;
+  }
 
   const rows = useMemo(() => {
     const totals: number[] = new Array(months.length).fill(0);
 
     for (const p of plans) {
-      if (p.status !== "active") continue;
+      if (!includePaused && p.status !== "active") continue;
       const amount = Number(p.amount || 0);
       if (!Number.isFinite(amount) || amount <= 0) continue;
 
-      // Başlangıç tarihi: nextRunAt varsa onu baz al; yoksa bugünden
-      let cursor = new Date(p.nextRunAt || now);
-      // Çok geçmişse, bugüne yaklaştır (aşırı döngüyü engelle)
-      if (cursor < addMonths(baseMonth, -3)) cursor = baseMonth; // güvenli kısayol
+      // Use nextRunAt if provided; otherwise today
+      const anchor = p.nextRunAt ? new Date(p.nextRunAt) : now;
 
       for (let mi = 0; mi < months.length; mi++) {
         const { from, to } = months[mi];
-
-        // Planın periyoduna göre bu ay içinde kaç kez çalışır?
-        if (p.period === "monthly") {
-          // Aylık: sadece ay başı veya nextRunAt sonrası ilk gün
-          const first = new Date(cursor);
-          // Eğer cursor bu aydan sonra ise bu ay için çalışmaz
-          if (first <= to) {
-            // Bu ay en az bir kez çalışır; ancak first < from ise bu ayın içinde bir kez say
-            if (first <= to && (first >= from || cursor <= to)) {
-              totals[mi] += amount;
-            }
-          }
-          // Sonraki aylara geçmek için cursor'u ay sonrasına taşı
-          cursor = addMonths(startOfMonth(first), 1);
-        } else if (p.period === "weekly") {
-          // Haftalık: haftalık adımlarla ay içinde kaç kez düştüğünü say
-          let t = new Date(cursor);
-          // Eğer t bu ayın başından önceyse ay başına çek
-          if (t < from) t = from;
-          while (t <= to) {
-            totals[mi] += amount;
-            t = addWeeks(t, 1);
-          }
-          // Sonraki ayın başına cursoru taşı
-          cursor = addMonths(from, 1);
-        } else {
-          // daily
-          let t = new Date(cursor);
-          if (t < from) t = from;
-          while (t <= to) {
-            totals[mi] += amount;
-            t = addDays(t, 1);
-          }
-          cursor = addMonths(from, 1);
-        }
+        const occ = countOccurrences(p.period, anchor, from, to);
+        if (occ > 0) totals[mi] += occ * amount;
       }
     }
 
@@ -122,26 +122,66 @@ export default function CashflowProjection({ plans, currency = "TRY", horizonMon
       total: totals[i],
       pct: (totals[i] / maxVal) * 100,
     }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(plans), horizonMonths]);
+  }, [plans, months, includePaused]);
 
   const grandTotal = rows.reduce((a, r) => a + r.total, 0);
+
+  const exportCsv = useCallback((data: { label: string; total: number }[]) => {
+    const header = "Ay,Toplam\n";
+    const body = data.map((r) => `${r.label},${r.total}`).join("\n");
+    const csv = header + body;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cashflow_${rangeMonths}ay.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [rangeMonths]);
 
   return (
     <div className="rounded-2xl border p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <div className="font-medium">Nakit Akışı Projeksiyonu</div>
-        <div className="text-xs text-gray-500">Toplam {fmtCurrency(grandTotal, currency)} / {horizonMonths} ay</div>
+        <div className="flex items-center gap-3 text-xs text-gray-700">
+          <label className="inline-flex items-center gap-1">
+            <span>Ay:</span>
+            <select
+              value={rangeMonths}
+              onChange={(e) => setRangeMonths(Number(e.target.value))}
+              className="rounded border px-2 py-1"
+            >
+              <option value={3}>3</option>
+              <option value={6}>6</option>
+              <option value={12}>12</option>
+            </select>
+          </label>
+          <label className="inline-flex items-center gap-1">
+            <input type="checkbox" checked={includePaused} onChange={(e) => setIncludePaused(e.target.checked)} />
+            Durdurulanları Dahil Et
+          </label>
+          <div className="text-gray-500">Toplam {fmtCurrency(grandTotal, currency)} / {rangeMonths} ay</div>
+          <button
+            type="button"
+            onClick={() => exportCsv(rows)}
+            className="rounded border px-2 py-1 hover:bg-gray-50"
+            title="CSV olarak indir"
+          >CSV</button>
+        </div>
       </div>
 
       {/* mini alan grafiği (div barları) */}
       <div className="mb-4 grid grid-cols-12 gap-2">
         {rows.map((r, idx) => (
-          <div key={idx} className="flex flex-col items-stretch">
+          <div key={idx} className="flex flex-col items-stretch" title={`${r.label}: ${fmtCurrency(r.total, currency)}`}>
             <div className="h-20 w-full rounded bg-gray-100 overflow-hidden">
-              <div className="h-full" style={{ width: "100%", height: `${Math.max(4, r.pct)}%` }} />
+              <div className="h-full bg-gray-400/70" style={{ width: "100%", height: `${Math.max(4, r.pct)}%` }} />
             </div>
-            <div className="mt-1 text-[10px] text-center text-gray-600 truncate">{r.label.split(" ")[0]}. {r.label.split(" ")[1]}</div>
+            <div className="mt-1 text-[10px] text-center text-gray-600 truncate">
+              {r.label.split(" ")[0]}. {r.label.split(" ")[1]}
+            </div>
           </div>
         ))}
       </div>
@@ -164,7 +204,7 @@ export default function CashflowProjection({ plans, currency = "TRY", horizonMon
           </tbody>
           <tfoot>
             <tr>
-              <td className="py-2 font-medium">Toplam ({horizonMonths} ay)</td>
+              <td className="py-2 font-medium">Toplam ({rangeMonths} ay)</td>
               <td className="py-2 text-right font-medium">{fmtCurrency(grandTotal, currency)}</td>
             </tr>
           </tfoot>

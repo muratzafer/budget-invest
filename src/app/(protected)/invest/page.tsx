@@ -1,16 +1,17 @@
+
+
 import { prisma } from "@/lib/prisma";
 import LivePricesClient from "./ui/LivePricesClient";
 import HoldingsTable from "./ui/HoldingsTable";
 import PortfolioOverview from "./ui/PortfolioOverview";
-import DCAPlansTable, { TargetSlice } from "./ui/DCAPlansTable";
-import TargetsSection from "./ui/TargetsSection";
-import RebalanceSuggestions from "./ui/RebalanceSuggestions";
+import type { TargetSlice } from "./ui/DCAPlansTable";
+import DCAPlans from "./ui/DCAPlans";
 import CashflowProjection from "./ui/CashflowProjection";
 import PortfolioTimeSeries from "./ui/PortfolioTimeSeries";
-
+import InvestActions from "./ui/InvestActions";
+import TargetAllocationSection from "./ui/TargetAllocationSection";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 // Single source of truth for display currency
 const BASE_CURRENCY = "TRY";
@@ -155,6 +156,7 @@ const finalTargets: TargetSlice[] =
         diffPct={diffPct}
         baseCurrency={BASE_CURRENCY}
       />
+      <InvestActions />
       <div className="mt-8">
         <HoldingsTable
           holdings={holdings}
@@ -163,13 +165,12 @@ const finalTargets: TargetSlice[] =
         />
       </div>
       <div className="mt-8 space-y-8">
-        <TargetsSection initialTargets={finalTargets} actualWeights={actualWeights} />
 
-        <RebalanceSuggestions
-          currency={BASE_CURRENCY as any}
+
+        <TargetAllocationSection
+          currency="TRY"
           totalMarket={totalMarket}
           actualWeights={actualWeights}
-          targets={finalTargets}
         />
 
         <CashflowProjection
@@ -178,14 +179,12 @@ const finalTargets: TargetSlice[] =
           plans={dcaPlans}
         />
 
-        <DCAPlansTable
+        <DCAPlans
           currency={BASE_CURRENCY as any}
-          targets={finalTargets}
           actualWeights={actualWeights}
         />
 
         <PortfolioTimeSeries days={60} currency={"TRY"} height={160} />
-
       </div>
     </>
   );

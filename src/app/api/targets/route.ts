@@ -65,3 +65,53 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
+export async function PUT(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const symbolRaw = body?.symbol;
+    const targetPctRaw = body?.targetPct;
+
+    if (typeof symbolRaw !== "string" || !Number.isFinite(Number(targetPctRaw))) {
+      return NextResponse.json({ error: "Expected { symbol: string, targetPct: number }" }, { status: 400 });
+    }
+
+    const symbol = symbolRaw.toUpperCase().trim();
+    const targetPct = Number(targetPctRaw);
+
+    // upsert tek kaydı günceller/oluşturur
+    const row = await prisma.targetAllocation.upsert({
+      where: { id: symbol }, // Ensure `symbol` is the unique identifier or adjust accordingly
+      create: { symbol, targetPct },
+      update: { targetPct },
+    });
+
+    return NextResponse.json(row);
+  } catch (err) {
+    console.error("PUT /api/targets error:", err);
+    return NextResponse.json({ error: "Failed to upsert target" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const symbolParam = url.searchParams.get("symbol");
+
+    if (!symbolParam) {
+      // sembol verilmezse tümünü silme opsiyonu güvenli değil → 400 dön
+      return NextResponse.json({ error: "Missing symbol query param" }, { status: 400 });
+    }
+
+    const symbol = symbolParam.toUpperCase().trim();
+    await prisma.targetAllocation.delete({ where: { id: symbol } });
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    // Eğer kayıt yoksa delete hata atabilir; bu durumda 204/ok dönebiliriz
+    if (err?.code === "P2025") {
+      return NextResponse.json({ success: true, note: "Already deleted" });
+    }
+    console.error("DELETE /api/targets error:", err);
+    return NextResponse.json({ error: "Failed to delete target" }, { status: 500 });
+  }
+}

@@ -8,6 +8,8 @@ export type Holding = {
   symbol: string;      // e.g. BTCUSDT, XAUUSD, AAPL
   quantity: number;    // owned amount
   avgCost: number;     // average cost in quote currency (TRY by default)
+  assetType?: string;  // optional: "crypto" | "equity" | "gold" | "fx"
+  currency?: string;   // optional: e.g. "TRY", "USD"
 };
 
 type LiveMap = Record<string, { price: number; asOf?: string; source?: string }>;
@@ -40,6 +42,36 @@ function fmtCurrency(n: number, currency = "TRY") {
 function fmtPercent(n: number) {
   const v = Number(n ?? 0);
   return `${v.toFixed(2)}%`;
+}
+
+// Returns the most common element in arr, or fallback if arr is empty
+function mode(arr: (string | undefined)[], fallback: string): string {
+  const counts: Record<string, number> = {};
+  for (const v of arr) {
+    if (!v) continue;
+    counts[v] = (counts[v] || 0) + 1;
+  }
+  let max = 0;
+  let result = fallback;
+  for (const k in counts) {
+    if (counts[k] > max) {
+      max = counts[k];
+      result = k;
+    }
+  }
+  return result;
+}
+
+// Heuristic guess for asset type from symbol (or fallback)
+function guessAssetType(symbol: string): string {
+  const sym = symbol.trim().toUpperCase();
+  if (/BTC|ETH|USDT|BNB|SOL|ADA|XRP|DOGE|AVAX|MATIC|SHIB|DOT|TRX|LINK|UNI|LTC|WBTC|DAI|FIL|ETC|APT|ARB|OP|PEPE|SUI|INJ|STX|XMR|XLM|TUSD|USDC|BUSD|USDT|CRV|AAVE|SNX|COMP|MKR|YFI|SAND|MANA|AXS|ENJ|GALA|GMT|APE|FLOW|CHZ|1INCH|BAT|ZRX|CVC|GNT|OMG|KNC/.test(sym)) return "crypto";
+  if (/XAU|XAG|XPT|XPD|GAU|ALTIN|GOLD|SILVER|PLATINUM|PALADYUM/.test(sym)) return "gold";
+  if (/USDTRY|EURTRY|EURUSD|GBPUSD|JPYUSD|USDEUR|USDTL|EURTL|GBPTRY|CHFTRY|AUDUSD|USDCAD|USDJPY|USDCHF|NZDUSD|USDMXN|USDZAR|USDHKD|USDNOK|USDDKK|USDSEK|USDPLN|USDHUF|USDILS|USDCNH|USDINR|USDIDR|USDSGD|USDTHB|USDKRW|USDTWD|USDPHP|USDVND|USDMYR|USDCZK|USDCLP|USDARS|USDTRY|EURUSD|EURGBP|EURJPY|EURCHF|EURAUD|EURNZD|EURCAD|EURSEK|EURNOK|EURDKK|EURPLN|EURHUF|EURCZK|EURTRY/.test(sym)) return "fx";
+  if (/^[A-Z]{1,5}$/.test(sym)) return "equity";
+  // fallback: if symbol ends with TRY/USD/EUR, treat as FX
+  if (/(TRY|USD|EUR)$/.test(sym)) return "fx";
+  return "crypto";
 }
 
 /**
@@ -92,6 +124,134 @@ export function LivePricesClient({ symbols, intervalMs = 5000 }: { symbols: stri
 
 /** ---------------- Table ---------------- */
 export default function HoldingsTable({ holdings, currency = "TRY", pollMs = 5000, latestPriceBySymbol }: Props) {
+  const [editing, setEditing] = useState<null | Holding>(null);
+  const [form, setForm] = useState<{ quantity: string; avgCost: string }>({ quantity: "", avgCost: "" });
+
+  // Create modal state
+  const [creating, setCreating] = useState(false);
+  const [assetTypeTouched, setAssetTypeTouched] = useState(false);
+  // Infer defaults from existing holdings
+  const defaultAssetType = useMemo(() => {
+    return mode((holdings || []).map(h => h.assetType), "crypto");
+  }, [holdings]);
+  const defaultCurrency = useMemo(() => {
+    return mode((holdings || []).map(h => h.currency), "TRY");
+  }, [holdings]);
+  const [createForm, setCreateForm] = useState<{
+    symbol: string;
+    assetType: string;
+    currency: string;
+    quantity: string;
+    avgCost: string;
+  }>({
+    symbol: "",
+    assetType: defaultAssetType,
+    currency: defaultCurrency,
+    quantity: "",
+    avgCost: "",
+  });
+  // When opening, use inferred defaults
+  function openCreate() {
+    setCreating(true);
+    setAssetTypeTouched(false);
+    setCreateForm({ symbol: "", assetType: defaultAssetType, currency: defaultCurrency, quantity: "", avgCost: "" });
+  }
+  function closeCreate() {
+    setCreating(false);
+    setAssetTypeTouched(false);
+    setCreateForm({ symbol: "", assetType: defaultAssetType, currency: defaultCurrency, quantity: "", avgCost: "" });
+  }
+  // Heuristic update on symbol change
+  function onCreateChange<K extends keyof typeof createForm>(k: K, v: string) {
+    setCreateForm((f) => {
+      if (k === "symbol" && !assetTypeTouched) {
+        // Guess asset type from symbol
+        const guessedAssetType = guessAssetType(v);
+        return { ...f, [k]: v, assetType: guessedAssetType };
+      }
+      return { ...f, [k]: v };
+    });
+  }
+  async function saveCreate() {
+    try {
+      const body = {
+        symbol: createForm.symbol.trim().toUpperCase(),
+        assetType: createForm.assetType,
+        currency: createForm.currency,
+        quantity: Number(createForm.quantity),
+        avgCost: Number(createForm.avgCost),
+      } as any;
+      const res = await fetch("/api/holdings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Kayıt eklenemedi");
+      }
+      if (typeof window !== "undefined") window.location.reload();
+    } catch (e) {
+      console.error(e);
+      alert((e as any)?.message || "Kayıt eklenemedi");
+    } finally {
+      closeCreate();
+    }
+  }
+
+  function openEdit(h: Holding) {
+    setEditing(h);
+    setForm({ quantity: String(h.quantity ?? 0), avgCost: String(h.avgCost ?? 0) });
+  }
+  function closeEdit() {
+    setEditing(null);
+    setForm({ quantity: "", avgCost: "" });
+  }
+  function onFormChange<K extends keyof typeof form>(k: K, v: string) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
+  async function saveEdit() {
+    if (!editing?.id) { closeEdit(); return; }
+    try {
+      const body = {
+        id: editing.id,
+        quantity: Number(form.quantity),
+        avgCost: Number(form.avgCost),
+      } as any;
+      const res = await fetch("/api/holdings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Güncelleme başarısız");
+      }
+      // Basit çözüm: sayfayı yenile
+      if (typeof window !== "undefined") window.location.reload();
+    } catch (e) {
+      console.error(e);
+      alert((e as any)?.message || "Güncelleme başarısız");
+    } finally {
+      closeEdit();
+    }
+  }
+  async function deleteRow(id?: string) {
+    if (!id) return;
+    if (!confirm("Bu varlığı silmek istediğine emin misin?")) return;
+    try {
+      const res = await fetch(`/api/holdings?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Silme başarısız");
+      }
+      if (typeof window !== "undefined") window.location.reload();
+    } catch (e) {
+      console.error(e);
+      alert((e as any)?.message || "Silme başarısız");
+    }
+  }
+
   const [live, setLive] = useState<LiveMap>({});
   const prev = useRef<LiveMap>({});
 
@@ -201,11 +361,34 @@ export default function HoldingsTable({ holdings, currency = "TRY", pollMs = 500
 
   const totalsPnlPct = totals.bookValue !== 0 ? (totals.pnl / totals.bookValue) * 100 : 0;
 
+  // When holdings change (and not touched), update defaults in form if modal is open
+  useEffect(() => {
+    if (!creating) return;
+    setCreateForm((f) => {
+      // Only update assetType/currency if untouched or empty
+      let updated = { ...f };
+      if (!assetTypeTouched && (!f.assetType || f.assetType === "")) {
+        updated.assetType = defaultAssetType;
+      }
+      if (!f.currency || f.currency === "") {
+        updated.currency = defaultCurrency;
+      }
+      return updated;
+    });
+  }, [defaultAssetType, defaultCurrency, holdings, creating, assetTypeTouched]);
+
   return (
     <div className="rounded-2xl border p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <div className="font-medium">Varlıklar</div>
-        <div className="text-xs text-gray-500">{lastUpdate ? `Son güncelleme: ${lastUpdate}` : ''}</div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openCreate}
+            className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
+          >Yeni Holding Ekle</button>
+          <div className="text-xs text-gray-500">{lastUpdate ? `Son güncelleme: ${lastUpdate}` : ''}</div>
+        </div>
       </div>
 
       {/* live poller */}
@@ -260,6 +443,7 @@ export default function HoldingsTable({ holdings, currency = "TRY", pollMs = 500
                   PnL % {sort.key === 'pnlPct' ? (sort.dir === 'asc' ? '▲' : '▼') : ''}
                 </button>
               </th>
+              <th className="py-2 text-right">İşlemler</th>
             </tr>
           </thead>
           <tbody>
@@ -282,11 +466,25 @@ export default function HoldingsTable({ holdings, currency = "TRY", pollMs = 500
                 <td className="py-2 text-right">{fmtCurrency(r.bookValue, currency)}</td>
                 <td className={`py-2 text-right ${r.pnl >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtCurrency(r.pnl, currency)}</td>
                 <td className={`py-2 text-right ${r.pnlPct >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{toNumber(r.pnlPct).toFixed(2)}%</td>
+                <td className="py-2 text-right">
+                  <div className="inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                      onClick={() => openEdit(r)}
+                    >Düzenle</button>
+                    <button
+                      type="button"
+                      className="rounded border px-2 py-1 text-xs hover:bg-rose-50 text-rose-600"
+                      onClick={() => deleteRow(r.id)}
+                    >Sil</button>
+                  </div>
+                </td>
               </tr>
             ))}
             {sortedRows.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-6 text-center text-gray-500">Kayıt yok.</td>
+                <td colSpan={10} className="py-6 text-center text-gray-500">Kayıt yok.</td>
               </tr>
             )}
           </tbody>
@@ -301,10 +499,111 @@ export default function HoldingsTable({ holdings, currency = "TRY", pollMs = 500
               <td className="py-2 text-right">{fmtCurrency(totals.bookValue, currency)}</td>
               <td className={`py-2 text-right ${totals.pnl >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtCurrency(totals.pnl, currency)}</td>
               <td className={`py-2 text-right ${totalsPnlPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtPercent(totalsPnlPct)}</td>
+              <td className="py-2 text-right">—</td>
             </tr>
           </tfoot>
         </table>
       </div>
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-lg">
+            <div className="mb-3 text-sm font-medium">{editing.symbol} düzenle</div>
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="text-gray-600">Adet</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={form.quantity}
+                  onChange={(e) => onFormChange("quantity", e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">Ortalama Maliyet</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={form.avgCost}
+                  onChange={(e) => onFormChange("avgCost", e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button type="button" onClick={closeEdit} className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">Vazgeç</button>
+              <button type="button" onClick={saveEdit} className="rounded border px-3 py-1.5 text-sm hover:bg-emerald-50 text-emerald-700">Kaydet</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {creating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-lg">
+            <div className="mb-3 text-sm font-medium">Yeni Holding Ekle</div>
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="text-gray-600">Sembol</span>
+                <input
+                  placeholder="BTCUSDT, XAUUSD, AAPL..."
+                  value={createForm.symbol}
+                  onChange={(e) => onCreateChange("symbol", e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">Varlık Tipi</span>
+                <select
+                  value={createForm.assetType}
+                  onChange={(e) => {
+                    setAssetTypeTouched(true);
+                    onCreateChange("assetType", e.target.value);
+                  }}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                >
+                  <option value="crypto">Kripto</option>
+                  <option value="equity">Hisse</option>
+                  <option value="gold">Altın/Metal</option>
+                  <option value="fx">Döviz</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">Para Birimi</span>
+                <input
+                  placeholder="TRY / USD / EUR"
+                  value={createForm.currency}
+                  onChange={(e) => onCreateChange("currency", e.target.value.toUpperCase())}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">Adet</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={createForm.quantity}
+                  onChange={(e) => onCreateChange("quantity", e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">Ortalama Maliyet</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={createForm.avgCost}
+                  onChange={(e) => onCreateChange("avgCost", e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button type="button" onClick={closeCreate} className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">Vazgeç</button>
+              <button type="button" onClick={saveCreate} className="rounded border px-3 py-1.5 text-sm hover:bg-emerald-50 text-emerald-700">Kaydet</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

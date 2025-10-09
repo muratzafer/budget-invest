@@ -45,15 +45,60 @@ export async function POST(req: Request) {
     const parsed = HoldingCreateSchema.parse(payload);
 
     // Prisma expects undefined rather than null for optional relations
+    const { accountId, ...rest } = parsed;
     const data = {
-      ...parsed,
-      accountId: parsed.accountId ?? undefined,
+      ...rest,
+      ...(accountId ? { accountId } : {}),
     };
 
-    const created = await prisma.holding.create({ data });
+    const created = await prisma.holding.create({
+      data: {
+        ...data,
+        // Prisma model requires avgPrice (Float). Use avgCost as initial unit price or 0.
+        avgPrice: Number(parsed.avgCost ?? 0),
+      },
+    });
     return NextResponse.json(created, { status: 201 });
   } catch (err: any) {
     // Handle Zod validation and generic runtime errors
+    const message =
+      err?.issues?.map?.((i: any) => i.message).join(", ") ??
+      err?.message ??
+      "Unknown error";
+    const status = err?.name === "ZodError" ? 400 : 400;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+// ── DELETE: delete holding by id ──────────────────────────────────────────────
+export async function DELETE(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
+    await prisma.holding.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? "Delete failed" }, { status: 500 });
+  }
+}
+
+// ── PUT: update holding by id ────────────────────────────────────────────────
+export async function PUT(req: Request) {
+  try {
+    const payload = await req.json();
+    const id = payload.id;
+    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
+    const parsed = HoldingCreateSchema.partial().parse(payload);
+    const updated = await prisma.holding.update({
+      where: { id },
+      data: parsed,
+    });
+
+    return NextResponse.json(updated);
+  } catch (err: any) {
     const message =
       err?.issues?.map?.((i: any) => i.message).join(", ") ??
       err?.message ??

@@ -1,5 +1,3 @@
-
-
 "use client";
 /**
  * TargetAllocationEditor.tsx
@@ -60,6 +58,44 @@ export default function TargetAllocationEditor({
 
   function removeRow(i: number) {
     setRows(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  async function saveRow(i: number) {
+    const r = rows[i];
+    if (!r) return;
+    const symbol = (r.symbol || "").trim().toUpperCase();
+    const targetPct = Number(r.targetPct);
+    if (!symbol) return alert("Sembol boş olamaz");
+    if (!Number.isFinite(targetPct)) return alert("Geçersiz yüzde");
+    try {
+      const res = await fetch("/api/targets", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, targetPct }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Satır kaydedilemedi");
+      // normalize saved row
+      setRow(i, { symbol, targetPct: Number(Number(targetPct).toFixed(4)) });
+    } catch (e: any) {
+      alert(e?.message || "Satır kaydedilemedi");
+    }
+  }
+
+  async function deleteRowApi(i: number) {
+    const r = rows[i];
+    if (!r) return;
+    const symbol = (r.symbol || "").trim().toUpperCase();
+    if (!symbol) return;
+    if (!confirm(`${symbol} hedefini silmek istiyor musun?`)) return;
+    try {
+      const res = await fetch(`/api/targets?symbol=${encodeURIComponent(symbol)}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Satır silinemedi");
+      removeRow(i);
+    } catch (e: any) {
+      alert(e?.message || "Satır silinemedi");
+    }
   }
 
   function autoNormalize() {
@@ -206,13 +242,20 @@ export default function TargetAllocationEditor({
                     </div>
                   </td>
                   <td className="py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => removeRow(i)}
-                      className="rounded-md border px-2 py-1 hover:bg-rose-50"
-                    >
-                      Sil
-                    </button>
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => saveRow(i)}
+                        className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
+                        title="Bu satırı kaydet (PUT)"
+                      >Kaydet</button>
+                      <button
+                        type="button"
+                        onClick={() => deleteRowApi(i)}
+                        className="rounded-md border px-2 py-1 text-xs hover:bg-rose-50 text-rose-700"
+                        title="Bu satırı sil (DELETE)"
+                      >Sil</button>
+                    </div>
                   </td>
                 </tr>
               );

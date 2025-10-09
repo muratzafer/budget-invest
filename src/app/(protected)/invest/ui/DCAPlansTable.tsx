@@ -97,7 +97,7 @@ export default function DCAPlansTable(props: DCAPlansTableProps) {
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch("/api/dca-plans", { cache: "no-store" });
+        const res = await fetch("/api/dca", { cache: "no-store" });
         const data = await res.json();
         if (!cancelled && Array.isArray(data)) {
           const rows: DCAPlan[] = data.map((r: any) => ({
@@ -160,7 +160,7 @@ export default function DCAPlansTable(props: DCAPlansTableProps) {
     }
     try {
       setSaving(true);
-      const res = await fetch("/api/dca-plans", {
+      const res = await fetch("/api/dca", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -199,8 +199,8 @@ export default function DCAPlansTable(props: DCAPlansTableProps) {
     }
     try {
       setSaving(true);
-      const res = await fetch("/api/dca-plans", {
-        method: "POST",
+      const res = await fetch("/api/dca", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -234,7 +234,7 @@ export default function DCAPlansTable(props: DCAPlansTableProps) {
     }
     try {
       setSaving(true);
-      const res = await fetch(`/api/dca-plans?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const res = await fetch(`/api/dca?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Plan silinemedi");
       setLocalPlans(prev => prev.filter(p => p.id !== id));
