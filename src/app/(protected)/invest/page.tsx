@@ -8,8 +8,11 @@ import type { TargetSlice } from "./ui/DCAPlansTable";
 import DCAPlans from "./ui/DCAPlans";
 import CashflowProjection from "./ui/CashflowProjection";
 import PortfolioTimeSeries from "./ui/PortfolioTimeSeries";
+import AiExplainPanel from "../reports/ui/AiExplainPanel";
+import RagAnalyzePanel from "../reports/ui/RagAnalyzePanel";
 import InvestActions from "./ui/InvestActions";
 import TargetAllocationSection from "./ui/TargetAllocationSection";
+import RebalanceSuggestions from "./ui/RebalanceSuggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -127,6 +130,26 @@ const finalTargets: TargetSlice[] =
         .slice(0, 10)
         .map(([symbol, pct]) => ({ symbol, targetPct: pct }));
 
+  // --- RAG-ish context for AI explain on Invest page ---
+  const selectedMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+  // Use current market value per symbol as a category-like breakdown
+  const categoryLike = symbols.map((sym) => {
+    // market value for this symbol
+    let qty = 0;
+    let avg = 0;
+    for (const h of holdings) {
+      if (h.symbol === sym) {
+        qty = toNumber(h.quantity);
+        avg = toNumber(h.avgCost);
+        break;
+      }
+    }
+    const last = latestPriceBySymbol.get(sym) ?? avg;
+    const mv = qty * last;
+    return { name: sym, expense: mv };
+  }).sort((a, b) => b.expense - a.expense).slice(0, 12);
+
   // Load active DCA plans for cashflow projection
   const dcaPlans = await prisma.dCAPlan.findMany({
     where: { status: "active" },
@@ -185,6 +208,27 @@ const finalTargets: TargetSlice[] =
         />
 
         <PortfolioTimeSeries days={60} currency={"TRY"} height={160} />
+
+        <AiExplainPanel
+          currency={BASE_CURRENCY as any}
+          month={selectedMonth}
+          totals={{ income: totalMarket, expense: totalBook, net: totalPnl }}
+          categories={categoryLike}
+          merchants={[]}
+          sixMonth={[]}
+        />
+        <RagAnalyzePanel month={selectedMonth} />
+
+        <RebalanceSuggestions
+          currency={BASE_CURRENCY as any}
+          totalMarket={totalMarket}
+          actualWeights={actualWeights}   // { BTCUSDT: 35.2, ... }
+          targets={finalTargets}            // [{ symbol: "BTCUSDT", targetPct: 40 }, ...]
+          prices={Object.fromEntries([...latestPriceBySymbol])} // Map -> plain object
+          minLot={{ BTCUSDT: 0.0001, ETHUSDT: 0.001 }}         // varsa
+          cashAvailable={0}     // opsiyonel
+        />
+
       </div>
     </>
   );

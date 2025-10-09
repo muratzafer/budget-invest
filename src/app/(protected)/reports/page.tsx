@@ -6,6 +6,8 @@ import KpiCards from "./ui/KpiCards";
 import InsightsPanel, { MonthlySummary } from "./ui/InsightsPanel";
 import ForecastPanel, { MonthlyPoint } from "./ui/ForecastPanel";
 import SummaryPanel from "./ui/SummaryPanel";
+import AiExplainPanel from "./ui/AiExplainPanel";
+import RagAnalyzePanel from "./ui/RagAnalyzePanel";
 
 
 export const dynamic = "force-dynamic";
@@ -37,7 +39,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
   }
 
 
-
+  const csvUrl = `/api/reports/export/csv?month=${selectedMonth}`;
 
   // Seçilen aydan bir önceki ay aralığı
   const prevBase = new Date(from); // 'from' zaten seçilen ayın ilk günü
@@ -239,6 +241,13 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
         </button>
       </form>
 
+      <a
+        href={csvUrl}
+        className="inline-block rounded border px-3 py-1 text-sm hover:bg-gray-50"
+      >
+        CSV indir
+      </a>
+
       {/* Özet Kartları */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="rounded-2xl border p-4 shadow-sm bg-white dark:bg-zinc-900">
@@ -309,6 +318,17 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
         merchants={topMerchants.map(m => ({ name: m.name, expense: Number(m.value || 0) }))}
         sixMonth={sixMonthSummaries} // MonthlyPoint ile uyumlu {month,income,expense,net}
       />
+
+      <AiExplainPanel
+        currency="TRY"
+        month={selectedMonth}
+        totals={{ income, expense, net }}
+        categories={categoryData.map(c => ({ name: c.name, expense: c.value }))}
+        merchants={topMerchants.map(m => ({ name: m.name, expense: Number(m.value || 0) }))}
+        sixMonth={sixMonthSummaries}
+      />
+
+      <RagAnalyzePanel month={selectedMonth} />
 
       {/* Kategori Kırılımı */}
       <section className="rounded-2xl border p-4 shadow-sm bg-white dark:bg-zinc-900">
