@@ -248,6 +248,14 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
         CSV indir
       </a>
 
+      {/* Günlük RAG özeti butonu */}
+      <a
+        href={`/daily-rag?month=${selectedMonth}`}
+        className="inline-block rounded border px-3 py-1 text-sm hover:bg-gray-50"
+      >
+        Günlük RAG özetleri
+      </a>
+      
       {/* Özet Kartları */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="rounded-2xl border p-4 shadow-sm bg-white dark:bg-zinc-900">
@@ -287,6 +295,9 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
           <div className="text-xs text-gray-500">Önceki ay: ₺ {fmt(prevNet)}</div>
         </div>
       </div>
+
+
+
 
       <KpiCards
         totalIncomeValue={income}

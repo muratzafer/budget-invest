@@ -1,10 +1,24 @@
-
-
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 // Optional simple auth for cron calls
 const CRON_TOKEN = process.env.CRON_TOKEN || process.env.CRON_SECRET || "";
+
+async function aiSummarize(origin: string, payload: any) {
+  try {
+    const res = await fetch(`${origin}/api/ai/explain`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) return null;
+    return String(data.summary || "");
+  } catch {
+    return null;
+  }
+}
 
 function parseDateOnly(s?: string | null) {
   if (!s) return null;
@@ -89,6 +103,24 @@ export async function GET(req: NextRequest) {
       .slice(0, 10)
       .map(([name, expense]) => ({ name, expense }));
 
+    // Optional AI summary
+    let aiSummary: string | null = null;
+    const wantAI = url.searchParams.get("ai") === "1";
+    if (wantAI) {
+      const origin = (req as any).nextUrl?.origin || `${url.protocol}//${url.host}`;
+      aiSummary = await aiSummarize(origin, {
+        text: "Bugünün işlemlerini özetle ve önemli noktaları kısaca açıkla.",
+        language: "tr",
+        tone: "neutral",
+        context: {
+          date: from.toISOString().slice(0, 10),
+          totals: { income, expense, net },
+          topCategories,
+          topMerchants,
+        },
+      });
+    }
+
     // Response only (no DB writes, to keep schema unchanged)
     return NextResponse.json({
       ok: true,
@@ -97,6 +129,7 @@ export async function GET(req: NextRequest) {
       counts: { transactions: tx.length },
       topCategories,
       topMerchants,
+      summary: aiSummary ?? undefined,
     });
   } catch (err) {
     console.error("/api/cron/daily-summary GET error", err);
@@ -108,6 +141,7 @@ export async function POST(req: NextRequest) {
   // Same as GET but allows JSON body with `date` and optional token.
   try {
     const body = await req.json().catch(() => ({}));
+    const wantAI = Boolean(body?.ai);
     const token = body?.token || body?.secret;
     if (CRON_TOKEN && token !== CRON_TOKEN) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -118,6 +152,7 @@ export async function POST(req: NextRequest) {
     const url = new URL(req.url);
     // reuse GET logic by forging a new request URL with `date`
     url.searchParams.set("date", `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    if (wantAI) url.searchParams.set("ai", "1");
     if (CRON_TOKEN) url.searchParams.set("token", CRON_TOKEN);
     const proxyReq = new Request(url.toString(), { method: "GET", headers: req.headers });
     // @ts-ignore

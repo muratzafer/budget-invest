@@ -1,3 +1,4 @@
+    
 import { NextRequest, NextResponse } from "next/server";
 
 // Optional simple auth for cron calls (same as daily-summary)
