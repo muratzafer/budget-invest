@@ -3,6 +3,10 @@ import CategoryBreakdown from "./ui/CategoryBreakdown";
 import MonthlyTrend from "./ui/MonthlyTrend";
 import TopMerchants from "./ui/TopMerchants";
 import KpiCards from "./ui/KpiCards";
+import InsightsPanel, { MonthlySummary } from "./ui/InsightsPanel";
+import ForecastPanel, { MonthlyPoint } from "./ui/ForecastPanel";
+import SummaryPanel from "./ui/SummaryPanel";
+
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -79,6 +83,21 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
   const prevIncome = Number(prevIncomeAgg._sum.amount ?? 0);
   const prevExpense = Number(prevExpenseAgg._sum.amount ?? 0);
   const prevNet = prevIncome - prevExpense;
+
+  // InsightsPanel inputs
+  const currentSummary: MonthlySummary = {
+    month: selectedMonth,
+    income: income,
+    expense: expense,
+    net: net,
+  };
+  const prevKey = `${prevFrom.getFullYear()}-${String(prevFrom.getMonth() + 1).padStart(2, "0")}`;
+  const prevSummary: MonthlySummary = {
+    month: prevKey,
+    income: prevIncome,
+    expense: prevExpense,
+    net: prevNet,
+  };
 
   // 3) Gider kategorileri kırılımı
   const expenseCats = new Map<string, string>();
@@ -166,6 +185,28 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
     net: m.net,
   }));
 
+  const sixMonthSummaries: MonthlySummary[] = series.map((m) => ({
+    month: m.key,
+    income: m.income,
+    expense: m.expense,
+    net: m.net,
+  }));
+
+  const topCategoryList = categoryData.map((c) => ({ name: c.name, expense: c.value }));
+  const topMerchantList = topMerchants.map((m) => ({ name: m.name, expense: Number(m.value || 0) }));
+
+
+
+
+  const sixMonthPoints: MonthlyPoint[] = sixMonthSummaries.map(m => ({
+    month: m.month,         // YYYY-MM
+    income: m.income,
+    expense: m.expense,
+    net: m.net,
+  }));
+
+
+
   // 5) Helpers
   const fmt = (n: number) =>
     new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(n);
@@ -244,6 +285,29 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { m
         netValue={net}
         transactionCount={txsMonth.length}
         currency="TRY"
+      />
+      <InsightsPanel
+        currency="TRY"
+        current={currentSummary}
+        prev={prevSummary}
+        sixMonth={sixMonthSummaries}
+        topCategories={topCategoryList}
+        topMerchants={topMerchantList}
+      />
+
+      <ForecastPanel
+        currency="TRY"
+        sixMonth={sixMonthPoints}
+        defaultHorizon={3}
+      />
+
+      <SummaryPanel
+        currency="TRY"
+        month={selectedMonth}
+        totals={{ income, expense, net }}
+        categories={categoryData.map(c => ({ name: c.name, expense: c.value }))}
+        merchants={topMerchants.map(m => ({ name: m.name, expense: Number(m.value || 0) }))}
+        sixMonth={sixMonthSummaries} // MonthlyPoint ile uyumlu {month,income,expense,net}
       />
 
       {/* Kategori Kırılımı */}
