@@ -5,10 +5,19 @@ import { prisma } from "@/lib/db";
 import TransactionPanel from "./ui/TransactionPanel";
 import PasteImport from "./ui/PasteImport";
 import { formatDateISO } from "@/lib/format";
+import BudgetCharts from "./ui/BudgetCharts";
+import TransactionQuickAdd from "./ui/TransactionQuickAdd";
 
 // Disable static caching to always fetch fresh data
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
+
+async function getSummary(month?: string) {
+  const qs = month ? `?month=${month}` : "";
+  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/budget/summary${qs}`, { cache: "no-store" });
+  const data = await res.json();
+  return data;
+}
 
 type AccountDTO = {
   id: string;
@@ -40,11 +49,20 @@ type TxDTO = {
   suggestedConfidence: number | null;
 };
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams?: { month?: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) {
     redirect("/signin");
   }
+
+  const today = new Date();
+  const selectedMonth =
+    typeof searchParams?.month === "string" && /^\d{4}-\d{2}$/.test(searchParams.month)
+      ? searchParams!.month
+      : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+
+  const summary = await getSummary(selectedMonth);
+  const csvUrl = `/api/reports/export/csv?month=${selectedMonth}`;
 
   const [accountsRaw, categoriesRaw, txsRaw] = await Promise.all([
     prisma.account.findMany({ orderBy: { name: "asc" } }),
@@ -72,7 +90,7 @@ export default async function Page() {
   }));
 
   // Transactions
-  const txs: TxDTO[] = txsRaw.map((t: { id: any; accountId: any; categoryId: any; type: string; amount: any; currency: any; description: any; merchant: any; occurredAt: Date; account: { id: any; name: any; currency: any; type: any; }; category: { id: any; name: any; type: string; }; }) => ({
+  const txs: TxDTO[] = txsRaw.map((t) => ({
     id: t.id,
     accountId: t.accountId,
     categoryId: t.categoryId,
@@ -107,6 +125,41 @@ export default async function Page() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Budget</h1>
       <p>Merhaba {session?.user?.email}</p>
+
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-gray-500">Seçili ay: {selectedMonth}</div>
+        <a href={csvUrl} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">CSV indir</a>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Gelir</div>
+          <div className="mt-1 text-2xl font-semibold">
+            {new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(Number(summary?.totals?.income||0))}
+          </div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Gider</div>
+          <div className="mt-1 text-2xl font-semibold">
+            {new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(Number(summary?.totals?.expense||0))}
+          </div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Net</div>
+          <div className="mt-1 text-2xl font-semibold">
+            {new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(Number(summary?.totals?.net||0))}
+          </div>
+        </div>
+      </div>
+
+      <BudgetCharts
+        trend12={summary?.trend12||[]}
+        categories={summary?.categories||[]}
+        merchants={summary?.merchants||[]}
+        month={selectedMonth}
+      />
+
+      <TransactionQuickAdd defaultMonth={selectedMonth} />
 
       <TransactionPanel
         accounts={accounts}
