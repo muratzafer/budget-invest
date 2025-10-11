@@ -96,7 +96,7 @@ async function buildSummary(from: Date, to: Date, topN: number) {
 }
 
 async function handle(req: NextRequest) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000");
   const top = Math.max(3, Math.min(50, Number(url.searchParams.get("top") || 10)));
   let month = url.searchParams.get("month");
   let range = parseMonth(month || undefined);

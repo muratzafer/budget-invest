@@ -7,14 +7,35 @@ import PasteImport from "./ui/PasteImport";
 import { formatDateISO } from "@/lib/format";
 import BudgetCharts from "./ui/BudgetCharts";
 import TransactionQuickAdd from "./ui/TransactionQuickAdd";
+import BudgetAiPanel from "./ui/BudgetAiPanel";
+import BudgetFilters from "./ui/BudgetFilters";
+import { headers } from "next/headers";
+import CategorizeSuggestions from "./ui/CategorizeSuggestions";
+import RuleManager from "./ui/RuleManager";
+
+
 
 // Disable static caching to always fetch fresh data
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
+function getBaseUrl() {
+  try {
+    const h = headers();
+    // bazı ortamlarda .get metodu tip uyarısı verebiliyor; optional chaining ile güvence alalım
+    const proto = (h as any)?.get?.("x-forwarded-proto") ?? "http";
+    const host = (h as any)?.get?.("host") ?? "localhost:3000";
+    return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
+  } catch {
+    // headers() çağrısı client veya build aşamasında çalışmıyorsa
+    return process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+  }
+}
+
 async function getSummary(month?: string) {
   const qs = month ? `?month=${month}` : "";
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/budget/summary${qs}`, { cache: "no-store" });
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/api/budget/summary${qs}`, { cache: "no-store" });
   const data = await res.json();
   return data;
 }
@@ -126,6 +147,8 @@ export default async function Page({ searchParams }: { searchParams?: { month?: 
       <h1 className="text-2xl font-semibold">Budget</h1>
       <p>Merhaba {session?.user?.email}</p>
 
+      <BudgetFilters />
+
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-500">Seçili ay: {selectedMonth}</div>
         <a href={csvUrl} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">CSV indir</a>
@@ -152,6 +175,10 @@ export default async function Page({ searchParams }: { searchParams?: { month?: 
         </div>
       </div>
 
+
+      <BudgetAiPanel defaultMonth={selectedMonth} />
+
+
       <BudgetCharts
         trend12={summary?.trend12||[]}
         categories={summary?.categories||[]}
@@ -166,6 +193,19 @@ export default async function Page({ searchParams }: { searchParams?: { month?: 
         categories={categories}
         initialTx={txs}
       />
+      
+      <CategorizeSuggestions
+        transactions={txs.map(tx => ({
+          id: tx.id,
+          merchant: tx.merchant,
+          description: tx.description,
+          amount: tx.amount,
+          categoryId: tx.categoryId,
+        })) /* {id, merchant, description, amount, categoryId} dizisi */}
+        threshold={Number(process.env.NEXT_PUBLIC_ML_CONF_THRESHOLD ?? 0.35)}
+      />
+
+      <RuleManager categories={categories} />
 
       <div className="pt-6">
         <PasteImport accounts={accounts} categories={categories} />
